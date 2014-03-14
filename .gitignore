@@ -1,0 +1,7 @@
+#temporary files
+*.swp
+
+#Compiled Files
+*.hi
+*.o
+Fit
