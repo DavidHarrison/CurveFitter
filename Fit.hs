@@ -1,6 +1,11 @@
 -- file: Fit.hs
 
-import Data.List (minimumBy, inits, tails)
+import Data.Either.Unwrap (fromRight)
+import Data.List (minimumBy, inits, tails, transpose)
+import Text.CSV (parseCSV, CSV)
+import Text.Parsec.Error (ParseError)
+import System.Environment (getArgs)
+import System.IO (readFile)
 
 type Point                    = (Double,Double)
 type Function                 = (Double -> Double)
@@ -14,46 +19,45 @@ type PolarCoord               = [Double]
 type Angle                    = Double
 type Radius                   = Double
 
-startingDelta   = 10
-finalDelta      = 0.0001
+startingDelta   = 1000
+finalDelta      = 0.001
 reduceDelta     = (\x -> x / 10)
 movesPerCircle  = 6
-finalCost       = 2
+finalCost       = 100
 
 -- ps: points to be fitted to
 -- cf: cost function
 -- con: conditition under which to yield current function
-fit :: [Point] -> CostFunction -> Condition -> [Coefficient]
-fit ps cf con = refineFit ps cf con [0]
+fit :: CostFunction -> Condition -> [Coefficient]
+fit cf con = refineFit cf con [0]
 
 -- ps: points to be fitted to
 -- cf: cost function
 -- con: conditition under which to yield current function
 -- coefs: coefficients of current power series function
-refineFit :: [Point] -> CostFunction -> Condition
-             -> [Coefficient] -> [Coefficient]
-refineFit ps cf con coefs
+refineFit :: CostFunction -> Condition -> [Coefficient] -> [Coefficient]
+refineFit cf con coefs
   | con coefs = coefs
-  | otherwise = refineFit ps cf con $ minimizeCost ps cf (coefs ++ [0])
-                                                   startingDelta
-                                                   finalDelta
+  | otherwise = refineFit cf con $ minimizeCost cf (coefs ++ [0])
+                                                startingDelta
+                                                finalDelta
 
 -- ps: points to be fitted to
 -- cf: cost function
 -- coefs: coefficients of current polynomial function
 -- sa: starting delta for optimization moves
 -- fa: final delta for optimization moves
-minimizeCost :: [Point] -> CostFunction -> [Coefficient]
-                -> Double -> Double -> [Coefficient]
-minimizeCost ps cf coefs sd fd
+minimizeCost :: CostFunction -> [Coefficient] -> Double -> Double
+                -> [Coefficient]
+minimizeCost cf coefs sd fd
   -- base case: starting delta is less than the final delta
   | sd < fd = coefs
   -- base case for delta: cost of current position is less than that of all
   --                      moves
   | (cf $ ctof coefs) <= (cf $ ctof minCostMove)
-    = minimizeCost ps cf coefs (reduceDelta sd) fd
+    = minimizeCost cf coefs (reduceDelta sd) fd
   -- otherwise, recurse on the minimum cost move
-  | otherwise = minimizeCost ps cf minCostMove sd fd
+  | otherwise = minimizeCost cf minCostMove sd fd
     where minCostMove = minimumBy (\x y -> compare (cf $ ctof x) (cf $ ctof y))
                         $ moves sd coefs
 
@@ -115,11 +119,18 @@ defaultCondition cf mc = (< mc) . cf . ctof
 --    trignometric functions etc.)
 
 defaultFit :: [Point] -> [Coefficient]
-defaultFit ps = fit ps cf con
+defaultFit ps = fit cf con
   where cf = defaultCostFunction ps
         con = defaultCondition cf finalCost
 
 main :: IO ()
-main = putStrLn $ show $ defaultFit [(x,(sin x)) | x <- [0,(pi/6)..(2*pi)]]
--- main = putStrLn $ show $ defaultFit testPoints
--- main = putStrLn $ show $ defaultFit [(x,(x**2)) | x <- [-5..5]]
+-- main = putStrLn $ show $ defaultFit [(x,(sin x)) | x <- [0,(pi/6)..(2*pi)]]
+main = getArgs >>= return . head >>= readFile >>= return . parseCSV ""
+       >>= return . defaultFit . formData
+       >>= putStrLn . show
+
+formData :: (Either ParseError CSV) -> [Point]
+formData csv = zip xs ys
+  where xs = map read $ head $ transpose rs
+        ys = map read $ last $ transpose rs
+        rs = fromRight csv
